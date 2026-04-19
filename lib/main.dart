@@ -8,7 +8,7 @@ void main() async {
 
   await Supabase.initialize(
     url: 'https://oojfkqlwqgzixkbtvuaj.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vamZrcWx3cWd6aXhrYnR2dWFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NjQ0ODksImV4cCI6MjA5MTI0MDQ4OX0.P2wB_JrFGxp-QULzxRjtJdUH830M7en_Ltmcqvf-OQY',
+    anonKey: 'sb_publishable_d0pqqK8jCi8gVoaPH4ga_A_p0ZztYoe',
   );
 
   runApp(
@@ -59,6 +59,7 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const AuthWrapper(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }

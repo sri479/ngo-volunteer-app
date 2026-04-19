@@ -19,9 +19,11 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
   final _addressController = TextEditingController();
   bool _useGps = true;
   final ImagePicker _picker = ImagePicker();
-
-  // Store XFile for cross-platform support (web + mobile)
   XFile? _pickedXFile;
+
+  // Geocoding state
+  String? _geocodedCoords;   // POINT string from Nominatim — null = not yet geocoded
+  bool _isGeocoding = false;
 
   @override
   void dispose() {
@@ -29,6 +31,33 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     _addressController.dispose();
     super.dispose();
   }
+
+  // ── Geocoding ────────────────────────────────────────────────
+  Future<void> _triggerGeocode() async {
+    final address = _addressController.text.trim();
+    if (address.length <= 3) return;
+
+    setState(() => _isGeocoding = true);
+    final point = await geocodeAddressToPoint(address);
+    if (!mounted) return;
+    setState(() {
+      _geocodedCoords = point;
+      _isGeocoding = false;
+    });
+
+    if (point == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Address not recognized — please be more specific or use GPS.',
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    }
+  }
+
 
   Future<void> _pickImage(ImageSource source) async {
     try {
@@ -143,7 +172,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
     );
   }
 
-  void _submit() {
+  void _submit() async {
     // Top-level guard: at least one of description or photo must be present
     final hasDescription = _descriptionController.text.trim().length >= 10;
     final hasPhoto = _pickedXFile != null;
@@ -168,11 +197,27 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
         return;
       }
 
+      // ── Geocoding for manual address ─────────────────────────
+      String? geocodedCoords;
+      if (!_useGps) {
+        if (_geocodedCoords == null) {
+          // Geocode now if not already done (e.g. user skipped onEditingComplete)
+          await _triggerGeocode();
+          if (!mounted) return;
+        }
+        geocodedCoords = _geocodedCoords;
+        if (geocodedCoords == null) {
+          // Error snackbar already shown by _triggerGeocode — abort submit
+          return;
+        }
+      }
+
       ref.read(reportProvider.notifier).submitReport(
             description: _descriptionController.text.trim(),
             useGps: _useGps,
             manualAddress: _useGps ? null : _addressController.text.trim(),
             imageFile: _pickedXFile,
+            geocodedGpsCoords: geocodedCoords,
           );
     }
   }
@@ -286,13 +331,34 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                           ),
                           if (!_useGps) ...[
                             const SizedBox(height: 16),
-                            TextFormField(
+                          TextFormField(
                               controller: _addressController,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Manual Address',
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.location_on),
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.location_on),
+                                suffixIcon: _isGeocoding
+                                    ? const Padding(
+                                        padding: EdgeInsets.all(12),
+                                        child: SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        ),
+                                      )
+                                    : _geocodedCoords != null
+                                        ? const Icon(Icons.check_circle,
+                                            color: Color(0xFF34C759))
+                                        : null,
                               ),
+                              onChanged: (_) {
+                                // Invalidate cached geocode when user edits
+                                if (_geocodedCoords != null) {
+                                  setState(() => _geocodedCoords = null);
+                                }
+                              },
+                              onEditingComplete: _triggerGeocode,
                               validator: (value) {
                                 if (!_useGps &&
                                     (value == null || value.trim().length <= 3)) {
@@ -321,7 +387,7 @@ class _ReportFormScreenState extends ConsumerState<ReportFormScreen> {
                   SizedBox(
                     height: 50,
                     child: FilledButton(
-                      onPressed: reportState.isLoading ? null : _submit,
+                      onPressed: (reportState.isLoading || _isGeocoding) ? null : _submit,
                       child: reportState.isLoading
                           ? const CircularProgressIndicator(color: Colors.white)
                           : const Text(

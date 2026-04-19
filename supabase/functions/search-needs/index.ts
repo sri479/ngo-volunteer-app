@@ -4,7 +4,7 @@ const jinaKey = Deno.env.get("JINA_API_KEY")
 
 const supabaseAdmin = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+  Deno.env.get("SERVICE_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
 )
 
 const CORS_HEADERS = {

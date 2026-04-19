@@ -15,6 +15,8 @@ class NeedWithReport {
   final List<String> requiredSkills;
   final String status; // open | dispatched | resolved
   final DateTime? reportCreatedAt;
+  final double? latitude;
+  final double? longitude;
   final double? similarity; // populated by search results
 
   NeedWithReport({
@@ -26,16 +28,30 @@ class NeedWithReport {
     required this.requiredSkills,
     required this.status,
     this.reportCreatedAt,
+    this.latitude,
+    this.longitude,
     this.similarity,
   });
 
   factory NeedWithReport.fromMap(Map<String, dynamic> m) {
     // Handle nested field_reports join or flat created_at
     DateTime? createdAt;
+    double? lat;
+    double? lng;
     final fr = m['field_reports'];
     if (fr is Map) {
       final raw = fr['created_at'];
       if (raw is String) createdAt = DateTime.tryParse(raw)?.toLocal();
+      
+      final gps = fr['gps_coords'];
+      if (gps is String) {
+        final match = RegExp(r'POINT\(([-+]?[0-9]*\.?[0-9]+)\s+([-+]?[0-9]*\.?[0-9]+)\)')
+            .firstMatch(gps);
+        if (match != null) {
+          lng = double.tryParse(match.group(1) ?? '');
+          lat = double.tryParse(match.group(2) ?? '');
+        }
+      }
     } else if (m['created_at'] is String) {
       createdAt = DateTime.tryParse(m['created_at'] as String)?.toLocal();
     }
@@ -52,6 +68,8 @@ class NeedWithReport {
           [],
       status: m['status'] as String? ?? 'open',
       reportCreatedAt: createdAt,
+      latitude: lat,
+      longitude: lng,
       similarity: (m['similarity'] as num?)?.toDouble(),
     );
   }
@@ -104,7 +122,7 @@ final verifiedNeedsStreamProvider =
       final data = await supabase
           .from('verified_needs')
           .select(
-              'id, category, priority_score, ai_summary, required_skills, status, report_id, field_reports(created_at)')
+              'id, category, priority_score, ai_summary, required_skills, status, report_id, field_reports(created_at, gps_coords)')
           .order('priority_score', ascending: false);
       if (!controller.isClosed) {
         controller.add(
@@ -202,7 +220,7 @@ final searchResultsProvider =
   try {
     final response = await supabase.functions.invoke(
       'search-needs',
-      body: {'query': query.trim(), 'threshold': 0.4, 'count': 20},
+      body: {'query': query.trim(), 'threshold': 0.6, 'count': 20},
     );
 
     if (response.status != 200) {

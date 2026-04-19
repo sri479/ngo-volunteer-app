@@ -1,10 +1,43 @@
+import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+
+// ── Nominatim geocoding ─────────────────────────────────────
+/// Converts a human-readable address into a PostGIS POINT string.
+/// Returns null if Nominatim cannot resolve the address.
+Future<String?> geocodeAddressToPoint(String address) async {
+  try {
+    final uri = Uri.parse('https://nominatim.openstreetmap.org/search')
+        .replace(queryParameters: {
+      'q': address.trim(),
+      'format': 'json',
+      'limit': '1',
+    });
+    final response = await http.get(uri, headers: {
+      'User-Agent': 'ReliefLink/1.0',
+    }).timeout(const Duration(seconds: 8));
+
+    if (response.statusCode != 200) return null;
+
+    final data = jsonDecode(response.body) as List<dynamic>;
+    if (data.isEmpty) return null;
+
+    final lat = double.tryParse(data[0]['lat'] as String? ?? '');
+    final lon = double.tryParse(data[0]['lon'] as String? ?? '');
+    if (lat == null || lon == null) return null;
+
+    return 'POINT($lon $lat)';
+  } catch (_) {
+    return null;
+  }
+}
+
 
 class ReportState {
   final bool isLoading;
@@ -103,6 +136,7 @@ class ReportNotifier extends StateNotifier<ReportState> {
     required bool useGps,
     required String? manualAddress,
     XFile? imageFile,
+    String? geocodedGpsCoords, // pre-computed POINT string from Nominatim
   }) async {
     state = state.copyWith(isLoading: true, error: null, success: false);
 
@@ -160,7 +194,14 @@ class ReportNotifier extends StateNotifier<ReportState> {
       if (useGps && gpsCoordsStr != null) {
         reportData['gps_coords'] = gpsCoordsStr;
       } else {
-        reportData['manual_address'] = manualAddress ?? '';
+        // Always store the human-readable label
+        if (manualAddress != null && manualAddress.isNotEmpty) {
+          reportData['manual_address'] = manualAddress;
+        }
+        // If we have a geocoded point, store it too so the map can pin it
+        if (geocodedGpsCoords != null) {
+          reportData['gps_coords'] = geocodedGpsCoords;
+        }
       }
 
       // ── 5. Insert report ──────────────────────────────────────
